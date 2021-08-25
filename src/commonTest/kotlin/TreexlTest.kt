@@ -14,6 +14,7 @@
 package org.treexl
 
 import org.treexl.rewriters.LiteralToParameterRewriter
+import org.treexl.visitors.TypedVisitor
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -370,4 +371,41 @@ class TreexlTest {
 
     }
 
+    @Test
+    fun testTypedVisitor() {
+        val expression = treexl.parse("A > :B and F = 123 and (C = :_1 or A = :B) and " +
+                "(D < :_2 and (:_1 = F or C <> 'foo')) and D < '287'")
+
+        val identifiers = mutableSetOf<String>()
+        expression.visit(TypedVisitor.visitor<Identifier> { identifiers.add(it.name) })
+        assertEquals(setOf("A", "C", "D", "F"), identifiers)
+
+        val parameters = mutableSetOf<String>()
+        expression.visit(TypedVisitor.visitor<Parameter> { parameters.add(it.name) })
+        assertEquals(setOf("B", "_1", "_2"), parameters)
+
+        val literals = mutableSetOf<Any?>()
+        expression.visit(TypedVisitor.visitor<Literal<*>> { literals.add(it.value) })
+        assertEquals(setOf<Any?>(123, "foo", "287"), literals)
+
+        expression.visit(object: AbstractVisitor() {
+            override fun visit(expression: Identifier) {
+                identifiers.add(expression.name)
+            }
+        })
+
+        checkInvalidTypedVisitorType<Binary>(expression)
+        checkInvalidTypedVisitorType<Grouping>(expression)
+        checkInvalidTypedVisitorType<Call>(expression)
+        checkInvalidTypedVisitorType<ExprList>(expression)
+        checkInvalidTypedVisitorType<Unary>(expression)
+    }
+
+    private inline fun <reified T: Expression> checkInvalidTypedVisitorType(expression: Expression) {
+        try {
+            expression.visit(TypedVisitor.visitor<T> { })
+        } catch (e: UnsupportedOperationException) {
+            assertEquals("Unsupported expression type ${T::class}.", e.message)
+        }
+    }
 }
